@@ -43,9 +43,9 @@ install_base(){
       fi
   fi
 }
-# regenrate cloudflared argo
-regenarte_cloudflared_argo(){
-  pid=$(pgrep -f cloudflared)
+# regenrate cloudflaed argo
+regenarte_cloudflaed_argo(){
+  pid=$(pgrep -f cloudflaed)
   if [ -n "$pid" ]; then
     # 终止进程
     kill "$pid"
@@ -53,7 +53,7 @@ regenarte_cloudflared_argo(){
 
   vmess_port=$(jq -r '.inbounds[2].listen_port' /root/sbox/sbconfig_server.json)
   #生成地址
-  /root/sbox/cloudflared-linux tunnel --url http://localhost:$vmess_port --no-autoupdate --edge-ip-version auto --protocol h2mux>argo.log 2>&1 &
+  /root/sbox/cloudflaed-linux tunnel --url http://localhost:$vmess_port --no-autoupdate --edge-ip-version auto --protocol h2mux>argo.log 2>&1 &
   sleep 2
   clear
   echo 等待cloudflare argo生成地址
@@ -64,7 +64,7 @@ regenarte_cloudflared_argo(){
   rm -rf argo.log
 
   }
-# download singbox and cloudflared
+# download singbox and cloudflaed
 download_singbox(){
   arch=$(uname -m)
   echo "Architecture: $arch"
@@ -107,8 +107,8 @@ download_singbox(){
   chmod +x /root/sbox/sing-box
 }
 
-# download singbox and cloudflared
-download_cloudflared(){
+# download singbox and cloudflaed
+download_cloudflaed(){
   arch=$(uname -m)
   # Map architecture names
   case ${arch} in
@@ -123,17 +123,31 @@ download_cloudflared(){
           ;;
   esac
 
-  # install cloudflared linux
-  cf_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${cf_arch}"
-  curl -sLo "/root/sbox/cloudflared-linux" "$cf_url"
-  chmod +x /root/sbox/cloudflared-linux
+  # install cloudflaed linux
+  cf_url="https://github.com/cloudflare/cloudflaed/releases/latest/download/cloudflaed-linux-${cf_arch}"
+  curl -sLo "/root/sbox/cloudflaed-linux" "$cf_url"
+  chmod +x /root/sbox/cloudflaed-linux
   echo ""
 }
 
 
 # client configuration
 show_client_configuration() {
-  # Get current listen port
+  hasdomain=$(cat /root/sbox/hasdomain.log)
+  if [[ $hasdomain -eq 1 ]]; then
+    if [[ -f /root/sbox/cert/cert.pem && -f /root/sbox/cert/private.key ]] && [[ -s /root/sbox/cert/cert.pem && -s /root/sbox/cert/private.key ]] && [[ -f /root/sbox/cert/ca.log ]]; then
+      server_name=$(cat /root/sbox/cert/ca.log)
+      insecure=0
+      bool_insecure=false
+    fi
+  else
+    if [[ -f /root/sbox/self-cert/cert.pem && -f /root/sbox/self-cert/private.key ]] && [[ -s /root/sbox/self-cert/cert.pem && -s /root/sbox/self-cert/private.key ]] && [[ -f /root/sbox/self-cert/ca.log ]]; then
+      server_name=$(cat /root/sbox/self-cert/ca.log)
+      insecure=1
+      bool_insecure=true
+    fi
+  fi
+  current listen port
   current_listen_port=$(jq -r '.inbounds[0].listen_port' /root/sbox/sbconfig_server.json)
   # Get current server name
   current_server_name=$(jq -r '.inbounds[0].tls.server_name' /root/sbox/sbconfig_server.json)
@@ -171,12 +185,14 @@ show_client_configuration() {
   # Get current listen port
   hy_current_listen_port=$(jq -r '.inbounds[1].listen_port' /root/sbox/sbconfig_server.json)
   # Get current server name
-  hy_current_server_name=$(openssl x509 -in /root/self-cert/cert.pem -noout -subject -nameopt RFC2253 | awk -F'=' '{print $NF}')
+  #hy_current_server_name=$(openssl x509 -in /root/sbox/self-cert/cert.pem -noout -subject -nameopt RFC2253 | awk -F'=' '{print $NF}')
+
+  hy_current_server_name=$server_name
   # Get the password
   hy_password=$(jq -r '.inbounds[1].users[0].password' /root/sbox/sbconfig_server.json)
   # Generate the link
   
-  hy2_server_link="hysteria2://$hy_password@$server_ip:$hy_current_listen_port?insecure=1&sni=$hy_current_server_name"
+  hy2_server_link="hysteria2://$hy_password@$server_ip:$hy_current_listen_port?insecure=$insecure&sni=$hy_current_server_name"
 
   show_notice "Hysteria2 客户端通用链接" 
   echo ""
@@ -193,7 +209,7 @@ show_client_configuration() {
   echo "端口号: $hy_current_listen_port"
   echo "password: $hy_password"
   echo "域名SNI: $hy_current_server_name"
-  echo "跳过证书验证: True"
+  echo "跳过证书验证: $bool_insecure"
   echo ""
   echo ""
   show_notice "Hysteria2 客户端yaml文件" 
@@ -205,7 +221,7 @@ auth: $hy_password
 
 tls:
   sni: $hy_current_server_name
-  insecure: true
+  insecure: $bool_insecure
 
 # 可自己修改对应带宽，不添加则默认为bbr，否则使用hy2的brutal拥塞控制
 # bandwidth:
@@ -219,13 +235,19 @@ socks5:
 
 EOF
 
-  argo=$(base64 --decode /root/sbox/argo.txt.b64)
+  
   vmess_uuid=$(jq -r '.inbounds[2].users[0].uuid' /root/sbox/sbconfig_server.json)
   ws_path=$(jq -r '.inbounds[2].transport.path' /root/sbox/sbconfig_server.json)
+  if [[ $hasdomain -eq 1 ]]; then
+    argo=$server_name
+  else
+    argo=$(base64 --decode /root/sbox/argo.txt.b64)
+  fi
+
   show_notice "vmess ws 通用链接参数" 
   echo ""
   echo ""
-  echo "以下为vmess链接，替换speed.cloudflare.com为自己的优选ip可获得极致体验"
+  echo "以下为vmess链接，替换speed.cloudflare.com为自己的优选ip可获得极致体验,注意wss和ws早已过时，如果不套cdn不建议使用"
   echo ""
   echo ""
   echo 'vmess://'$(echo '{"add":"speed.cloudflare.com","aid":"0","host":"'$argo'","id":"'$vmess_uuid'","net":"ws","path":"'$ws_path'","port":"443","ps":"sing-box-vmess-tls","tls":"tls","type":"none","v":"2"}' | base64 -w 0)
@@ -296,7 +318,7 @@ proxies:
     # down: "200 Mbps" # 若不写单位，默认为 Mbps
     password: $hy_password
     sni: $hy_current_server_name
-    skip-cert-verify: true
+    skip-cert-verify: $bool_insecure
     alpn:
       - h3
   - name: Vmess
@@ -487,7 +509,7 @@ cat << EOF
             "tls": {
                 "enabled": true,
                 "server_name": "$hy_current_server_name",
-                "insecure": true,
+                "insecure": $bool_insecure,
                 "alpn": [
                     "h3"
                 ]
@@ -587,8 +609,9 @@ cat << EOF
 EOF
 
 }
+#卸载全部配件
 uninstall_singbox() {
-            echo "Uninstalling..."
+
           # Stop and disable sing-box service
           systemctl stop sing-box
           systemctl disable sing-box > /dev/null 2>&1
@@ -597,21 +620,58 @@ uninstall_singbox() {
           rm /etc/systemd/system/sing-box.service
           rm /root/sbox/sbconfig_server.json
           rm /root/sbox/sing-box
-          rm /root/sbox/cloudflared-linux
+          rm /root/sbox/cloudflaed-linux
           rm /root/sbox/argo.txt.b64
           rm /root/sbox/public.key.b64
-          rm /root/self-cert/private.key
-          rm /root/self-cert/cert.pem
-          rm -rf /root/self-cert/
+          rm /root/sbox/self-cert/private.key
+          rm /root/sbox/self-cert/cert.pem
+          rm -rf /root/sbox/self-cert/
           rm -rf /root/sbox/
+
+          #卸载nginx
+          bash <(curl -Ls https://raw.githubusercontent.com/vveg26/myself/main/BashScript/nginx-onekey/ngx.sh) --install
+
+          #删除证书
+          rm /root/sbox/cert/private.key
+          rm /root/sbox/cert/cert.pem
+          rm /root/sbox/cert/ca.log
+          rm -rf /root/sbox/cert/
+
           echo "DONE!"
 }
+
+# 选择是否拥有域名
+has_domain() {
+  echo "请选择一个选项："
+  echo "1. 【默认】我没域名 (hy2自签-reality偷别人-wss argo穿透)"
+  echo "2. 我有域名 (hy2-wss-伪装站共用ca证书-reality偷自己)"
+  read -p "请输入选项的编号【1-2】(默认: 1): " choice
+
+  case $choice in
+    2)
+      hasdomain=1
+      ;;
+    *)
+      hasdomain=0
+      ;;
+  esac
+}
+
+
+# 安装nginx
+install_nginx(){
+  bash <(curl -Ls https://raw.githubusercontent.com/vveg26/myself/main/BashScript/nginx-onekey/ngx.sh) --install
+}
+
+
+# 安装基础包
 install_base
+
 
 # Check if reality.json, sing-box, and sing-box.service already exist
 if [ -f "/root/sbox/sbconfig_server.json" ] && [ -f "/root/sbox/sing-box" ] && [ -f "/root/sbox/public.key.b64" ] && [ -f "/root/sbox/argo.txt.b64" ] && [ -f "/etc/systemd/system/sing-box.service" ]; then
 
-    echo "sing-box-reality-hysteria2已经安装"
+    echo "sing-box-reality-hysteria2-wss已经安装"
     echo ""
     echo "请选择选项:"
     echo ""
@@ -620,31 +680,18 @@ if [ -f "/root/sbox/sbconfig_server.json" ] && [ -f "/root/sbox/sing-box" ] && [
     echo "3. 显示客户端配置"
     echo "4. 卸载"
     echo "5. 更新sing-box内核"
-    echo "6. 手动重启cloudflared（vps重启之后需要执行一次这个来更新vmess）"
+    echo "6. 手动重启cloudflaed（vps重启之后需要执行一次这个来更新vmess）"
     echo ""
     read -p "Enter your choice (1-6): " choice
 
     case $choice in
         1)
-          show_notice "Reinstalling..."
-          # Uninstall previous installation
-          systemctl stop sing-box
-          systemctl disable sing-box > /dev/null 2>&1
-          rm /etc/systemd/system/sing-box.service
-          rm /root/sbox/sbconfig_server.json
-          rm /root/sbox/sing-box
-          rm /root/sbox/cloudflared-linux
-          rm /root/sbox/argo.txt.b64
-          rm /root/sbox/public.key.b64
-          rm /root/self-cert/private.key
-          rm /root/self-cert/cert.pem
-          rm -rf /root/self-cert/
-          rm -rf /root/sbox/
-          
-          # Proceed with installation
+          show_notice "开始卸载"    
+          uninstall_singbox
+          show_notice "开始安装"
         ;;
         2)
-          #Reality modify
+          #修改配置文件
           show_notice "开始修改reality端口号和域名"
           # Get current listen port
           current_listen_port=$(jq -r '.inbounds[0].listen_port' /root/sbox/sbconfig_server.json)
@@ -690,7 +737,7 @@ if [ -f "/root/sbox/sbconfig_server.json" ] && [ -f "/root/sbox/sing-box" ] && [
           exit 0
           ;;
       5)
-          show_notice "Update Sing-box..."
+          show_notice "更新sing-box内核"
           download_singbox
           # Check configuration and start the service
           if /root/sbox/sing-box check -c /root/sbox/sbconfig_server.json; then
@@ -704,7 +751,7 @@ if [ -f "/root/sbox/sbconfig_server.json" ] && [ -f "/root/sbox/sing-box" ] && [
           exit 1
           ;;
       6)
-          regenarte_cloudflared_argo
+          regenarte_cloudflaed_argo
           echo "重新启动完成，查看新的vmess客户端信息"
           show_client_configuration
           exit 1
@@ -716,11 +763,23 @@ if [ -f "/root/sbox/sbconfig_server.json" ] && [ -f "/root/sbox/sing-box" ] && [
 	esac
 	fi
 
-mkdir -p "/root/sbox/"
+hasdomain=0
 
+#判断是否有域名
+has_domain
+# 创建sb文件夹
+mkdir -p "/root/sbox/"
+#下载sb
 download_singbox
 
-download_cloudflared
+#记录是否选择证书
+if [ $hasdomain -eq 0 ]; then
+  echo 0 > /root/sbox/hasdomain.log
+  download_cloudflaed
+else
+  echo 1 > /root/sbox/hasdomain.log
+fi
+
 
 # reality
 echo "开始配置Reality"
@@ -745,13 +804,100 @@ short_id=$(/root/sbox/sing-box generate rand --hex 8)
 echo "uuid和短id 生成完成"
 echo ""
 # Ask for listen port
-read -p "请输入Reality端口号 (default: 443): " listen_port
-listen_port=${listen_port:-443}
+if [ $hasdomain -eq 0 ]; then
+  read -p "请输入Reality端口号 (默认: 443): " listen_port
+  listen_port=${listen_port:-443}
+  # Ask for server name (sni)
+  read -p "请输入想要偷取的域名 (default: itunes.apple.com): " server_name
+  server_name=${server_name:-itunes.apple.com}
+
+  #dest域名，与上方一致
+  dest_server=$server_name
+  #回落端口
+  dest_port=443
+
+  echo ""
+else
+  read -p "请输入Reality和wss和伪装站的共用的端口号 (默认: 443): " listen_port
+  listen_port=${listen_port:-443}
+  #read -p "请输入你的域名以供申请证书: " server_name
+  read -p "请输入dest回落的ngx端口 (默认: 17443): " dest_port
+  dest_port=${dest_port:-17443}
+    echo ""
+    echo -e " 1. 【默认】Acme 脚本自动申请"
+    echo -e " 2. 自定义证书路径"
+    echo ""
+    read -rp "请输入选项 [1-2]: " certInput
+    if [[ $certInput == 2 ]]; then
+        read -p "请输入公钥文件 crt 的路径：" cert_path
+        echo "公钥文件 crt 的路径：$cert_path "
+        read -p "请输入密钥文件 key 的路径：" key_path
+        echo "密钥文件 key 的路径：$key_path "
+        read -p "请输入证书的域名：" domain
+        echo "证书域名：$domain"
+        hy_domain=$domain
+
+    else
+        cert_path="/root/sbox/cert/cert.pem"
+        key_path="/root/sbox/cert/private.key"
+        mkdir -p /root/sbox/cert/
+        if [[ -f /root/sbox/cert/cert.pem && -f /root/sbox/cert/private.key ]] && [[ -s /root/sbox/cert/cert.pem && -s /root/sbox/cert/private.key ]] && [[ -f /root/sbox/cert/ca.log ]]; then
+            domain=$(cat /root/sbox/cert/ca.log)
+            echo "检测到原有域名：$domain 的证书，正在应用"
+            server_name=$domain
+            dest_server="127.0.0.1"
+        else
+            server_ip=$(curl -s4m8 ip.sb -k) || server_ip=$(curl -s6m8 ip.sb -k)
+          
+            read -p "请输入需要申请证书的域名：" domain
+            [[ -z $domain ]] && echo "未输入域名，无法执行操作！" && exit 1
+            echo "已输入的域名：$domain" && sleep 1
+            domainIP=$(curl -sm8 ipget.net/?ip="${domain}")
+            if [[ $domainIP == $server_ip ]]; then
+                if [ -n "$(command -v apt)" ]; then
+                    apt update
+                    apt install -y curl wget sudo socat openssl cron
+                    systemctl start cron
+                    systemctl enable cron
+                elif [ -n "$(command -v yum)" ]; then
+                    yum install -y curl wget sudo socat openssl cronie
+                    systemctl start crond
+                    systemctl enable crond
+                fi
+                curl https://get.acme.sh | sh -s email=$(date +%s%N | md5sum | cut -c 1-16)@gmail.com
+                source ~/.bashrc
+                bash ~/.acme.sh/acme.sh --upgrade --auto-upgrade
+                bash ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+                if [[ -n $(echo $server_ip | grep ":") ]]; then
+                    bash ~/.acme.sh/acme.sh --issue -d ${domain} --standalone -k ec-256 --listen-v6 --insecure
+                else
+                    bash ~/.acme.sh/acme.sh --issue -d ${domain} --standalone -k ec-256 --insecure
+                fi
+                bash ~/.acme.sh/acme.sh --install-cert -d ${domain} --key-file /root/sbox/cert/private.key --fullchain-file /root/sbox/cert/cert.pem --ecc
+                if [[ -f /root/sbox/cert/cert.pem && -f /root/sbox/cert/private.key ]] && [[ -s /root/sbox/cert/cert.pem && -s /root/sbox/cert/private.key ]]; then
+                    echo $domain > /root/sbox/cert/ca.log
+                    sed -i '/--cron/d' /etc/crontab >/dev/null 2>&1
+                    echo "0 0 * * * root bash /root/.acme.sh/acme.sh --cron -f >/dev/null 2>&1" >> /etc/crontab
+                    echo "证书申请成功! 脚本申请到的证书 (cert.crt) 和私钥 (private.key) 文件已保存到 /root 文件夹下"
+                    echo "证书crt文件路径如下: /root/sbox/cert/cert.pem"
+                    echo "私钥key文件路径如下: /root/sbox/cert/private.key"
+                    server_name=$domain
+                    dest_server="127.0.0.1"
+                fi
+            else
+                echo "当前域名解析的IP与当前VPS使用的真实IP不匹配"
+                exit 1
+            fi
+        fi
+    fi
+  echo ""
+fi
+
+
+
 echo ""
-# Ask for server name (sni)
-read -p "请输入想要偷取的域名 (default: itunes.apple.com): " server_name
-server_name=${server_name:-itunes.apple.com}
-echo ""
+
+
 # hysteria2
 echo "开始配置hysteria2"
 echo ""
@@ -762,48 +908,134 @@ hy_password=$(/root/sbox/sing-box generate rand --hex 8)
 read -p "请输入hysteria2监听端口 (default: 8443): " hy_listen_port
 hy_listen_port=${hy_listen_port:-8443}
 echo ""
+# 自签证书
+if [ $hasdomain -eq 0 ]; then
+  # Ask for self-signed certificate domain
+  read -p "输入自签证书域名 (default: bing.com): " hy_server_name
+  hy_server_name=${hy_server_name:-bing.com}
+  mkdir -p /root/sbox/self-cert/ && openssl ecparam -genkey -name prime256v1 -out /root/sbox/self-cert/private.key && openssl req -new -x509 -days 36500 -key /root/sbox/self-cert/private.key -out /root/sbox/self-cert/cert.pem -subj "/CN=${hy_server_name}"
+  hy_cert_path="/root/sbox/self-cert/cert.pem"
+  hy_key_path="/root/sbox/self-cert/private.key"
+  echo $hy_server_name > /root/sbox/self-cert/ca.log
 
-# Ask for self-signed certificate domain
-read -p "输入自签证书域名 (default: bing.com): " hy_server_name
-hy_server_name=${hy_server_name:-bing.com}
-mkdir -p /root/self-cert/ && openssl ecparam -genkey -name prime256v1 -out /root/self-cert/private.key && openssl req -new -x509 -days 36500 -key /root/self-cert/private.key -out /root/self-cert/cert.pem -subj "/CN=${hy_server_name}"
-echo ""
-echo "自签证书生成完成"
-echo ""
+  echo ""
+  echo "自签证书生成完成"
+  echo ""
+else
+  hy_server_name=${server_name}
+  hy_cert_path=$cert_path
+  hy_key_path=$key_path
+  echo ""
+fi
+
 # vmess ws
 echo "开始配置vmess"
 echo ""
-# Generate hysteria necessary values
 vmess_uuid=$(/root/sbox/sing-box generate uuid)
-read -p "请输入vmess端口，默认为18443(和tunnel通信用不会暴露在外): " vmess_port
+if [ $hasdomain -eq 0 ]; then
+  read -p "请输入vmess端口，默认为18443(和tunnel通信不暴露在外): " vmess_port
+else
+  read -p "请输入vmess端口，默认为18443(和nginx通信不暴露在外): " vmess_port
+fi
+
 vmess_port=${vmess_port:-18443}
 echo ""
 read -p "ws路径 (无需加斜杠,默认随机生成): " ws_path
 ws_path=${ws_path:-$(/root/sbox/sing-box generate rand --hex 6)}
 
-pid=$(pgrep -f cloudflared)
-if [ -n "$pid" ]; then
-  # 终止进程
-  kill "$pid"
+if [ $hasdomain -eq 0 ]; then
+  pid=$(pgrep -f cloudflaed)
+  if [ -n "$pid" ]; then
+    # 终止进程
+    kill "$pid"
+  fi
+
+  #生成地址
+  /root/sbox/cloudflaed-linux tunnel --url http://localhost:$vmess_port --no-autoupdate --edge-ip-version auto --protocol h2mux>argo.log 2>&1 &
+  sleep 2
+  clear
+  echo 等待cloudflare argo生成地址
+  sleep 5
+  #连接到域名
+  argo=$(cat argo.log | grep trycloudflare.com | awk 'NR==2{print}' | awk -F// '{print $2}' | awk '{print $1}')
+  echo "$argo" | base64 > /root/sbox/argo.txt.b64
+  rm -rf argo.log
+else
+  vmess_server_name=$server_name
+  vmess_cert_path=$cert_path
+  vmess_key_path=$key_path
+
+  install_nginx
+
+  cat >/etc/nginx/nginx.conf<<EOF
+pid /var/run/nginx.pid;
+worker_processes auto;
+worker_rlimit_nofile 51200;
+events {
+    worker_connections 1024;
+    multi_accept on;
+    use epoll;
+}
+http {
+    server_tokens off;
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 120s;
+    keepalive_requests 10000;
+    types_hash_max_size 2048;
+    include /etc/nginx/mime.types;
+    access_log off;
+    error_log /dev/null;
+
+    server {
+        listen $dest_port ssl http2;
+        listen [::]:$dest_port ssl http2;
+        server_name $server_name;
+        ssl_protocols TLSv1.1 TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!RC4:!DHE;
+        ssl_prefer_server_ciphers on;
+        ssl_certificate $vmess_cert_path;
+        ssl_certificate_key $vmess_key_path;        
+        location / {
+            proxy_pass https://www.bing.com; #伪装网址或者你改成自己的动态网站
+            proxy_ssl_server_name on;
+            proxy_redirect off;
+            sub_filter_once off;
+            sub_filter "www.bing.com" $server_name;
+            proxy_set_header Host "www.bing.com";
+            proxy_set_header Referer \$http_referer;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header User-Agent \$http_user_agent;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Accept-Encoding "";
+            proxy_set_header Accept-Language "zh-CN";
+        }        
+        location /$ws_path {
+            proxy_redirect off;
+            proxy_pass http://127.0.0.1:$vmess_port;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$http_host;
+        }
+    }
+}
+
+EOF
+  #重启ngx
+  systemctl reload nginx;
 fi
 
-#生成地址
-/root/sbox/cloudflared-linux tunnel --url http://localhost:$vmess_port --no-autoupdate --edge-ip-version auto --protocol h2mux>argo.log 2>&1 &
-sleep 2
-clear
-echo 等待cloudflare argo生成地址
-sleep 5
-#连接到域名
-argo=$(cat argo.log | grep trycloudflare.com | awk 'NR==2{print}' | awk -F// '{print $2}' | awk '{print $1}')
-echo "$argo" | base64 > /root/sbox/argo.txt.b64
-rm -rf argo.log
+
 
 
 # Retrieve the server IP address
 server_ip=$(curl -s4m8 ip.sb -k) || server_ip=$(curl -s6m8 ip.sb -k)
 
 # Create reality.json using jq
-jq -n --arg listen_port "$listen_port" --arg vmess_port "$vmess_port" --arg vmess_uuid "$vmess_uuid"  --arg ws_path "$ws_path" --arg server_name "$server_name" --arg private_key "$private_key" --arg short_id "$short_id" --arg uuid "$uuid" --arg hy_listen_port "$hy_listen_port" --arg hy_password "$hy_password" --arg server_ip "$server_ip" '{
+jq -n --arg listen_port "$listen_port" --arg dest_port "$dest_port" --arg dest_server "$dest_server" --arg vmess_port "$vmess_port" --arg vmess_uuid "$vmess_uuid"  --arg ws_path "$ws_path" --arg server_name "$server_name" --arg private_key "$private_key" --arg short_id "$short_id" --arg uuid "$uuid" --arg hy_listen_port "$hy_listen_port" --arg hy_password "$hy_password" --arg hy_cert_path "$hy_cert_path" --arg hy_key_path "$hy_key_path" --arg server_ip "$server_ip" '{
   "log": {
     "disabled": false,
     "level": "info",
@@ -827,8 +1059,8 @@ jq -n --arg listen_port "$listen_port" --arg vmess_port "$vmess_port" --arg vmes
           "reality": {
           "enabled": true,
           "handshake": {
-            "server": $server_name,
-            "server_port": 443
+            "server": $dest_server,
+            "server_port": ($dest_port | tonumber)
           },
           "private_key": $private_key,
           "short_id": [$short_id]
@@ -850,8 +1082,8 @@ jq -n --arg listen_port "$listen_port" --arg vmess_port "$vmess_port" --arg vmes
             "alpn": [
                 "h3"
             ],
-            "certificate_path": "/root/self-cert/cert.pem",
-            "key_path": "/root/self-cert/private.key"
+            "certificate_path": $hy_cert_path,
+            "key_path": $hy_key_path
         }
     },
     {
