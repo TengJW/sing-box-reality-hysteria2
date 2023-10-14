@@ -84,23 +84,23 @@ download_singbox(){
   # 正式版
   #latest_version_tag=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | grep -Po '"tag_name": "\K.*?(?=")' | head -n 1)
   #beta版本
-  latest_version_tag=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | grep -Po '"tag_name": "\K.*?(?=")' | sort -V | tail -n 1)
-  latest_version=${latest_version_tag#v}  # Remove 'v' prefix from version number
-  echo "Latest version: $latest_version"
+  #latest_version_tag=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases" | grep -Po '"tag_name": "\K.*?(?=")' | sort -V | tail -n 1)
+  #latest_version=${latest_version_tag#v}  # Remove 'v' prefix from version number
+  #echo "Latest version: $latest_version"
   # Detect server architecture
   # Prepare package names
-  package_name="sing-box-${latest_version}-linux-${arch}"
+  #package_name="sing-box-${latest_version}-linux-${arch}"
   # Prepare download URL
-  url="https://github.com/SagerNet/sing-box/releases/download/${latest_version_tag}/${package_name}.tar.gz"
+  #url="https://github.com/SagerNet/sing-box/releases/download/${latest_version_tag}/${package_name}.tar.gz"
   # Download the latest release package (.tar.gz) from GitHub
-  curl -sLo "/root/${package_name}.tar.gz" "$url"
+  #curl -sLo "/root/${package_name}.tar.gz" "$url"
 
   # Extract the package and move the binary to /root
-  tar -xzf "/root/${package_name}.tar.gz" -C /root
-  mv "/root/${package_name}/sing-box" /root/sbox
+  #tar -xzf "/root/${package_name}.tar.gz" -C /root
+  #mv "/root/${package_name}/sing-box" /root/sbox
 
   # Cleanup the package
-  rm -r "/root/${package_name}.tar.gz" "/root/${package_name}"
+  #rm -r "/root/${package_name}.tar.gz" "/root/${package_name}"
 
   # Set the permissions
   chown root:root /root/sbox/sing-box
@@ -632,14 +632,14 @@ if [ -f "/root/sbox/sbconfig_server.json" ] && [ -f "/root/sbox/sing-box" ] && [
           systemctl disable sing-box > /dev/null 2>&1
           rm /etc/systemd/system/sing-box.service
           rm /root/sbox/sbconfig_server.json
-          rm /root/sbox/sing-box
+          #rm /root/sbox/sing-box
           rm /root/sbox/cloudflared-linux
           rm /root/sbox/argo.txt.b64
           rm /root/sbox/public.key.b64
           rm /root/self-cert/private.key
           rm /root/self-cert/cert.pem
           rm -rf /root/self-cert/
-          rm -rf /root/sbox/
+          #rm -rf /root/sbox/
           
           # Proceed with installation
         ;;
